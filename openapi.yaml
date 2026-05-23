@@ -1,0 +1,457 @@
+openapi: 3.0.3
+
+info:
+  title: Identity & Notification Services API
+  version: 1.0.0
+  description: |
+    API for managing user authentication, role-based profiles, and transactional multi-channel notifications (Email, SMS, Push) within the Auto Service System.
+
+servers:
+  - url: /api/v1
+
+tags:
+  - name: Authentication & Identity
+  - name: User Profiles
+  - name: Notification Templates
+  - name: Notification Delivery Logs
+  - name: Health
+
+paths:
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint (Role: USER/MECHANIC/MANAGER/ADMIN)
+      description: Returns service health status. Role required: USER, MECHANIC, MANAGER, or ADMIN.
+      operationId: healthCheck
+      parameters:
+        - $ref: '#/components/parameters/UserRoleHeader'
+      responses:
+        '200':
+          description: Services are healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        '403':
+          description: Forbidden
+
+  # ==========================================
+  # IDENTITY & AUTHENTICATION ENDPOINTS
+  # ==========================================
+
+  /auth/register:
+    post:
+      tags:
+        - Authentication & Identity
+      summary: Register a new platform account (Role: GUEST)
+      description: Creates a unique user account with a default 'Customer' role and allocates an empty profile.
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAuthResponse'
+        '400':
+          description: Invalid request payload or email already exists
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication & Identity
+      summary: Authenticate user credentials (Role: GUEST)
+      description: Verifies plain password against salted hash and issues short-lived JWT Access Token and Refresh Token.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAuthResponse'
+        '401':
+          description: Unauthorized (Invalid credentials)
+        '403':
+          description: Account is deactivated (Banned)
+
+  /users/{userId}/profile:
+    get:
+      tags:
+        - User Profiles
+      summary: Retrieve profile details (Role: USER/MECHANIC/MANAGER/ADMIN)
+      description: Fetches specific metadata linked to verified user context.
+      operationId: getUserProfile
+      parameters:
+        - $ref: '#/components/parameters/UserRoleHeader'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '403':
+          description: Forbidden
+        '404':
+          description: Profile not found
+
+    put:
+      tags:
+        - User Profiles
+      summary: Update personal profile data (Role: OWNER/ADMIN)
+      description: Modifies personal record information including contact parameters and UI preferences.
+      operationId: updateUserProfile
+      parameters:
+        - $ref: '#/components/parameters/UserRoleHeader'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileUpdateRequest'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          description: Invalid syntax payload
+        '403':
+          description: Forbidden
+
+  /users/{userId}/lockout:
+    patch:
+      tags:
+        - Authentication & Identity
+      summary: Administrative account lockout (Role: MANAGER or ADMIN)
+      description: Toggles the 'is_active' status attribute to terminate subsequent valid authorization actions.
+      operationId: administrativeLockout
+      parameters:
+        - $ref: '#/components/parameters/UserRoleHeader'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - isActive
+              properties:
+                isActive:
+                  type: boolean
+                  example: false
+      responses:
+        '200':
+          description: Account state mutated successfully
+        '403':
+          description: Forbidden (Requires Manager/Admin privileges)
+        '404':
+          description: User context not found
+
+  # ==========================================
+  # NOTIFICATION SERVICE ENDPOINTS
+  # ==========================================
+
+  /notifications/templates:
+    post:
+      tags:
+        - Notification Templates
+      summary: Create notification template (Role: ADMIN)
+      description: Registers an idempotent layout containing message body variables for automated engine use.
+      operationId: createTemplate
+      parameters:
+        - $ref: '#/components/parameters/UserRoleHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationTemplateRequest'
+      responses:
+        '201':
+          description: Template declared successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationTemplateResponse'
+        '403':
+          description: Forbidden
+
+  /notifications/logs:
+    get:
+      tags:
+        - Notification Delivery Logs
+      summary: Query notification delivery histories (Role: MANAGER or ADMIN)
+      description: Exposes audit logs regarding transactional message transmissions across providers.
+      operationId: retrieveNotificationLogs
+      parameters:
+        - $ref: '#/components/parameters/UserRoleHeader'
+        - name: recipientUserId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Structured log array retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationLogResponse'
+                  page:
+                    type: integer
+                  pageSize:
+                    type: integer
+                  totalItems:
+                    type: integer
+        '403':
+          description: Forbidden
+
+components:
+
+  parameters:
+    UserRoleHeader:
+      name: X-User-Role
+      in: header
+      required: true
+      description: Extracted context role forwarded by upstream API Gateway.
+      schema:
+        type: string
+        enum:
+          - USER
+          - MECHANIC
+          - MANAGER
+          - ADMIN
+
+  schemas:
+
+    # Auth Schemas
+    UserRegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+        - firstName
+        - lastName
+        - phoneNumber
+      properties:
+        email:
+          type: string
+          format: email
+          example: customer@service.com
+        password:
+          type: string
+          minLength: 8
+          example: SuperSecurePass123!
+        firstName:
+          type: string
+          example: Oleksandr
+        lastName:
+          type: string
+          example: Belinskyi
+        phoneNumber:
+          type: string
+          example: "+380501112233"
+
+    UserLoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: mechanic.alex@autoservice.com
+        password:
+          type: string
+          example: WorkshopSecretPassword
+    
+    UserAuthResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+        role:
+          type: string
+          example: Customer
+        accessToken:
+          type: string
+          description: Short-lived Bearer JWT Token.
+        refreshToken:
+          type: string
+
+    # Profile Schemas
+    UserProfileResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phoneNumber:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        preferencesJson:
+          type: string
+          example: '{"language": "uk", "theme": "dark"}'
+
+    UserProfileUpdateRequest:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - phoneNumber
+      properties:
+        firstName:
+          type: string
+          example: Oleksandr
+        lastName:
+          type: string
+          example: Belinskyi
+        phoneNumber:
+          type: string
+          example: "+380501112233"
+        avatarUrl:
+          type: string
+          example: "https://cdn.storage/avatars/u10.png"
+        preferencesJson:
+          type: string
+          example: '{"language": "en"}'
+
+    # Notification Templates
+    NotificationTemplateRequest:
+      type: object
+      required:
+        - templateCode
+        - channel
+        - bodyTemplate
+      properties:
+        templateCode:
+          type: string
+          example: REPAIR_READY
+        channel:
+          type: string
+          enum: [Email, SMS, Push]
+          example: SMS
+        titleTemplate:
+          type: string
+          example: "Your Vehicle Status"
+        bodyTemplate:
+          type: string
+          example: "Hello {name}, your car {car} is ready for pick-up. Total: {cost} UAH."
+
+    NotificationTemplateResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        templateCode:
+          type: string
+        channel:
+          type: string
+        titleTemplate:
+          type: string
+        bodyTemplate:
+          type: string
+        isActive:
+          type: boolean
+
+    # Notification Logs
+    NotificationLogResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recipientUserId:
+          type: string
+          format: uuid
+        channel:
+          type: string
+          example: SMS
+        recipientAddress:
+          type: string
+          example: "+380501112233"
+        body:
+          type: string
+          example: "Hello Oleksandr, your car BMW X5 is ready for pick-up. Total: 2400 UAH."
+        status:
+          type: string
+          enum: [Pending, Sent, Failed, Delivered]
+          example: Delivered
+        errorMessage:
+          type: string
+          nullable: true
+        sentAt:
+          type: string
+          format: date-time
