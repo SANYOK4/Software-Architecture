@@ -1,0 +1,129 @@
+asyncapi: 3.0.0
+
+info:
+  title: Identity & Notification Services Events
+  version: 1.0.0
+  description: |
+    AsyncAPI specification for user lifecycle events and multi-channel notifications.
+
+servers:
+  kafkaBroker:
+    host: kafka:9092
+    protocol: kafka
+    description: Kafka message broker
+
+channels:
+
+  userRegistered:
+    address: identity.user.registered
+    messages:
+      UserRegistered:
+        $ref: '#/components/messages/UserRegistered'
+
+  notificationDispatched:
+    address: notification.dispatch.requested
+    messages:
+      NotificationDispatchRequested:
+        $ref: '#/components/messages/NotificationDispatchRequested'
+
+operations:
+
+  publishUserRegistered:
+    action: send
+    channel:
+      $ref: '#/channels/userRegistered'
+    summary: Publish successful user registration event
+    description: |
+      Emitted by Identity Service whenever a new customer or staff account is successfully created.
+    messages:
+      - $ref: '#/channels/userRegistered/messages/UserRegistered'
+
+  consumeUserRegistered:
+    action: receive
+    channel:
+      $ref: '#/channels/userRegistered'
+    summary: Consume registration events to trigger welcome workflows
+    description: |
+      Received by Notification Service to dynamically send welcome emails or SMS.
+    messages:
+      - $ref: '#/channels/userRegistered/messages/UserRegistered'
+
+  consumeNotificationRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/notificationDispatched'
+    summary: Consume outgoing notification requests
+    description: |
+      Receives dynamic notification payloads from the ecosystem to process and send via text/email gateways.
+    messages:
+      - $ref: '#/channels/notificationDispatched/messages/NotificationDispatchRequested'
+
+components:
+
+  messages:
+
+    UserRegistered:
+      name: UserRegistered
+      title: User Registered Event
+      summary: Signals that a new user profile has been atomically created
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - userId
+          - email
+          - firstName
+          - phoneNumber
+          - role
+        properties:
+          userId:
+            type: string
+            format: uuid
+          email:
+            type: string
+            format: email
+          firstName:
+            type: string
+          lastName:
+            type: string
+          phoneNumber:
+            type: string
+          role:
+            type: string
+            enum: [Customer, Mechanic, Manager, Admin]
+
+    NotificationDispatchRequested:
+      name: NotificationDispatchRequested
+      title: Notification Dispatch Requested Event
+      summary: Dynamic request to send an SMS, Email, or Push message
+      contentType: application/json
+      payload:
+        type: object
+        required:
+          - notificationId
+          - recipientUserId
+          - channel
+          - templateCode
+          - templateVariables
+        properties:
+          notificationId:
+            type: string
+            format: uuid
+          recipientUserId:
+            type: string
+            format: uuid
+          channel:
+            type: string
+            enum: [Email, SMS, Push]
+          templateCode:
+            type: string
+            example: REPAIR_READY
+          templateVariables:
+            type: object
+            description: Key-value pairs matching placeholders in the notification template.
+            additionalProperties:
+              type: string
+            example:
+              name: "Oleksandr"
+              car: "BMW X5"
+              cost: "2400"
